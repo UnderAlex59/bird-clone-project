@@ -112,6 +112,26 @@ public class AuthService {
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
+    public Mono<UUID> rotateSecretForUser(UUID userId) {
+        return Mono.fromCallable(() -> {
+            if (userId == null) {
+                throw new IllegalArgumentException("User id is required");
+            }
+            AuthUser user = authRepository.findAuthUserById(userId);
+            if (user.getId() == null) {
+                throw new IllegalArgumentException("User not found");
+            }
+
+            String newSecret = SecretGenerator.newSecret();
+            int updated = authRepository.updateUserSecret(userId, newSecret);
+            if (updated != 1) {
+                throw new IllegalStateException("Secret update failed");
+            }
+
+            return userId;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
     public Mono<IntrospectResponse> introspect(String token) {
         if (isBlank(token)) {
             return Mono.just(new IntrospectResponse(false, null, List.of()));

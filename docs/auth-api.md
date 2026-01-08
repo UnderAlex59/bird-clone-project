@@ -1,4 +1,4 @@
-# API авторизации и аутентификации
+# Auth API (UMS)
 
 ## Регистрация
 `POST /auth/register`
@@ -31,6 +31,8 @@
 }
 ```
 
+Если `roles` не переданы, будет назначен `SUBSCRIBER`.
+
 ## Логин
 `POST /auth/login`
 
@@ -42,13 +44,34 @@
 }
 ```
 
-Ответ аналогичен регистрации (JWT + данные пользователя).
+Ответ аналогичен регистрации (`code: "200"`, `message: "Login successful"`).
 
-## Ротация ключа пользователя
-`POST /auth/rotate-secret`  
-Требует `Authorization: Bearer <token>`.
+## Ротация секрета
+`POST /auth/rotate-secret`
 
-Ответ: новый JWT, подписанный новым `secret_key`.
+Заголовок:
+```
+Authorization: Bearer <token>
+```
+
+Ответ: как у регистрации/логина, но с новым JWT.
+
+### Админ: ротация секрета пользователя
+`POST /auth/rotate-secret/{user-id}`
+
+Заголовок:
+```
+Authorization: Bearer <admin-token>
+```
+
+Ответ:
+```json
+{
+  "code": "200",
+  "message": "Secret rotated",
+  "data": "uuid"
+}
+```
 
 ## Интроспекция токена
 `POST /auth/introspect`
@@ -70,13 +93,16 @@
 ```
 
 ## GitHub OAuth
-Старт авторизации:
+Старт потока:
 `GET /oauth2/authorization/github`
 
-После успешного логина UMS отвечает JSON с JWT (через success handler).
+После успешного логина UMS делает редирект на:
+```
+/login?auth=<base64(AuthResponse)>
+```
 
-## Использование JWT в API
-Все защищенные эндпойнты UMS и Twitter требуют:
+## Использование JWT
+Для защищённых эндпоинтов UMS и Twitter:
 ```
 Authorization: Bearer <token>
 ```

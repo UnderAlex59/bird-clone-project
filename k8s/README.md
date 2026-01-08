@@ -1,20 +1,20 @@
-# Kubernetes Runbook
+# Запуск в Kubernetes
 
-## Prerequisites
-- kubectl configured for a cluster
-- NGINX Ingress Controller installed (ingressClassName: nginx)
-- A default StorageClass (or set storageClassName in the MySQL StatefulSets)
-- A CNI that enforces NetworkPolicy (required for networkpolicies.yaml)
+## Требования
+- `kubectl`, настроенный на кластер
+- Установленный NGINX Ingress Controller (ingressClassName: `nginx`)
+- StorageClass по умолчанию (или укажите `storageClassName` в StatefulSet для MySQL)
+- CNI с поддержкой NetworkPolicy (нужно для `networkpolicies.yaml`)
 
-## Build images
-Build service images from the repo root (details in `DOCKER-BUILD.md`):
+## Сборка образов
+Соберите образы из корня репозитория (детали в `DOCKER-BUILD.md`):
 ```shell
 docker build -t ums:2.0 ums
 docker build -t twitter:2.0 twitter
 docker build -t frontend:2.0 frontend
 ```
 
-If you use a local cluster, load the images:
+Если кластер локальный, загрузите образы:
 ```shell
 # kind
 kind load docker-image ums:2.0 twitter:2.0 frontend:2.0
@@ -25,38 +25,32 @@ minikube image load twitter:2.0
 minikube image load frontend:2.0
 ```
 
-If you use a remote cluster, push the images to a registry and update the tags in the
-manifests.
+Для удалённого кластера отправьте образы в реестр и обновите теги в манифестах.
 
-## Deploy
-Update the auth secret before deploying:
-```shell
-# Edit k8s/secrets.yaml and set GitHub OAuth credentials
-# For GitHub OAuth, ensure GITHUB_REDIRECT_URI matches your GitHub App callback
-```
+## Деплой
+1) Обновите `k8s/secrets.yaml` и задайте GitHub OAuth учётные данные.
+   `GITHUB_REDIRECT_URI` должен совпадать с callback GitHub App.
+
+2) Для Minikube включите ingress:
 ```shell
 minikube addons enable ingress
+```
+
+3) Примените манифесты:
+```shell
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/
+```
+
+Если вы используете Minikube, получите внешний адрес ingress:
+```shell
 minikube tunnel
 kubectl get svc -n ingress-nginx ingress-nginx-controller
 ```
-После этого добавить в hosts: <EXTERNAL-IP> app.local.
 
+Добавьте запись в `hosts`: `<EXTERNAL-IP> app.local`.
 
-```shell
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/secrets.yaml
-kubectl apply -f k8s/mysql-ums.yaml
-kubectl apply -f k8s/mysql-twitter.yaml
-kubectl apply -f k8s/ums.yaml
-kubectl apply -f k8s/twitter.yaml
-kubectl apply -f k8s/frontend.yaml
-kubectl apply -f k8s/networkpolicies.yaml
-kubectl apply -f k8s/ingress.yaml
-```
-
-## Verify
+## Проверка
 ```shell
 kubectl get pods -n apps
 kubectl rollout status -n apps deploy/ums
@@ -66,54 +60,51 @@ kubectl rollout status -n apps statefulset/mysql-ums
 kubectl rollout status -n apps statefulset/mysql-twitter
 ```
 
-## Access
-Ingress uses the host `app.local`. Point it to your ingress controller address and open:
+## Доступ
+Ingress использует хост `app.local`. Откройте:
 - http://app.local/
 - http://app.local/api/ums/...
 - http://app.local/api/twitter/...
 
-### Minikube ingress service type
-The Minikube ingress addon exposes the controller as a `NodePort` by default, so you must use the
-NodePort in the URL:
+### Minikube: ingress как NodePort
+Ingress аддон Minikube публикует контроллер как `NodePort`, поэтому используйте NodePort в URL:
 ```shell
 minikube addons enable ingress
 kubectl get svc -n ingress-nginx ingress-nginx-controller -o wide
 # http://app.local:<nodePort>/
 ```
 
-## Local DNS (app.local)
-For local clusters, map `app.local` to your ingress controller address:
+## Локальный DNS (app.local)
+Сопоставьте `app.local` с адресом ingress:
 ```shell
 # minikube
 minikube ip
 
-# kind (ingress exposed on host)
-# use 127.0.0.1 if ingress listens on host 80/443
+# kind (ingress на хосте)
+# используйте 127.0.0.1, если ingress слушает 80/443 на хосте
 ```
 
-Add a hosts entry:
+Добавьте запись в `hosts`:
 - Windows: `C:\Windows\System32\drivers\etc\hosts`
 - macOS/Linux: `/etc/hosts`
 
-Add a line:
+Строка для добавления:
 ```
 <ingress-ip> app.local
 ```
 
 ## Auth API
-UMS issues JWT tokens:
+UMS выдаёт JWT:
 - POST http://app.local/api/ums/auth/register
 - POST http://app.local/api/ums/auth/login
 - POST http://app.local/api/ums/auth/rotate-secret
 - POST http://app.local/api/ums/auth/introspect
+- POST http://app.local/api/ums/auth/rotate-secret/{user-id}
 
-Include `Authorization: Bearer <token>` when calling UMS/Twitter endpoints.
+Для защищённых запросов используйте `Authorization: Bearer <token>`.
 
-GitHub OAuth flow starts at:
+GitHub OAuth стартует по адресу:
 - http://app.local/api/ums/oauth2/authorization/github
 
-On a local cluster, add an `/etc/hosts` entry for `app.local` that points to the ingress
-controller IP or use a local DNS mapping solution of your choice.
-
-If DNS in your cluster is labeled differently than `k8s-app: kube-dns`, adjust the selector
-in `k8s/networkpolicies.yaml`.
+Если DNS в кластере размечен не как `k8s-app: kube-dns`, поправьте селектор в
+`k8s/networkpolicies.yaml`.

@@ -1,6 +1,7 @@
 package com.ziminpro.ums.controllers;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -14,6 +15,7 @@ import com.ziminpro.ums.dtos.Constants;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -55,6 +57,36 @@ public class AuthController {
                 .onErrorResume(ex -> Mono.just(buildResponse("400", ex.getMessage(), false)));
     }
 
+    @PostMapping("/rotate-secret/{user-id}")
+    public Mono<ResponseEntity<Map<String, Object>>> rotateSecretForUser(
+            @PathVariable(value = "user-id") String userId,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (jwt == null || jwt.getSubject() == null) {
+            return Mono.just(buildResponse("401", "Unauthorized", false));
+        }
+        if (!hasRole(jwt, "ADMIN")) {
+            return Mono.just(buildResponse("403", "Admin role required", false));
+        }
+
+        UUID targetId;
+        try {
+            targetId = UUID.fromString(userId);
+        } catch (IllegalArgumentException ex) {
+            return Mono.just(buildResponse("400", "Invalid user id", false));
+        }
+
+        return authService.rotateSecretForUser(targetId)
+                .map(result -> buildResponse("200", "Secret rotated", result.toString()))
+                .onErrorResume(ex -> {
+                    String message = ex.getMessage() == null ? "Failed to rotate secret" : ex.getMessage();
+                    String code = "400";
+                    if ("User not found".equals(message)) {
+                        code = "404";
+                    }
+                    return Mono.just(buildResponse(code, message, false));
+                });
+    }
+
     @PostMapping("/introspect")
     public Mono<IntrospectResponse> introspect(@RequestBody IntrospectRequest request) {
         if (request == null || request.token() == null) {
@@ -72,5 +104,21 @@ public class AuthController {
                 .header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
                 .header(Constants.ACCEPT, Constants.APPLICATION_JSON)
                 .body(response);
+    }
+
+    private boolean hasRole(Jwt jwt, String role) {
+        if (jwt == null || role == null || role.isBlank()) {
+            return false;
+        }
+        List<String> roles = jwt.getClaimAsStringList("roles");
+        if (roles == null || roles.isEmpty()) {
+            return false;
+        }
+        for (String entry : roles) {
+            if (entry != null && role.equalsIgnoreCase(entry.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 }
