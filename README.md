@@ -66,6 +66,15 @@ To build the project, follow the steps below.
 ### Verify How It Works
 As a result you should have 2 separate services running on your local machine using ports `9000` and `9001` accordingly. Import Postman collections from the `requests` folder into your Postman/Hopscotch/Insomnia client to check how it works.
 
+### Auth (JWT)
+UMS now issues JWT tokens:
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/rotate-secret`
+
+Include `Authorization: Bearer <token>` when calling UMS/Twitter APIs. GitHub OAuth is available at
+`/oauth2/authorization/github` (configure GitHub client credentials first).
+
 ## Contributing 
 Contributions to this repository are welcome! If you would like to add a new code or improve an existing one, please follow these steps: 
 1. Fork the repository. 
@@ -79,3 +88,7 @@ Please ensure that your article is well-written, accurate, and includes relevant
 
 ## License 
 This repository is licensed under the [BSD 2-Clause License](LICENSE).
+
+## Auth docs (RU)
+- docs/auth-overview.md
+- docs/auth-api.md

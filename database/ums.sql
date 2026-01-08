@@ -38,7 +38,8 @@ CREATE TABLE `users` (
   `id` binary(16) NOT NULL,
   `name` varchar(45) NOT NULL,
   `email` varchar(45) NOT NULL,
-  `password` varchar(45) NOT NULL,
+  `password` varchar(100) NOT NULL,
+  `secret_key` varchar(64) NOT NULL,
   `created` int NOT NULL,
   `last_visit_id` binary(16) DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -70,12 +71,12 @@ INSERT INTO `roles` (`id`, `name`, `description`) VALUES
 (X'B479B3577E2547FA8DBABFDAEECC6C2C', 'SUBSCRIBER', 'Message content consumer'),
 (X'EB932DBB7005422FA6497190AF39E984', 'PRODUCER', 'Message content producer');
 
-INSERT INTO `users` (`id`, `name`, `email`, `password`, `created`, `last_visit_id`) VALUES
-(X'0DD03A597DBC4D0081073271B3345434', 'Angela Merkel', 'angela@merkel.de', 'password', '1504249224', X'8A0BE660EBC64C47AF813F7123977993'),
-(X'1CD89E11602A4186AFBFE0149B59EB08', 'Emmanuel Macron', 'emmanuel@macron.fr', 'password', '1504249224', X'BE76648F49F24FBE9BC434BD8C23C70E'),
-(X'6E27EA06A7164C89AF88813749A8BD48', 'Donald Trump', 'donalt@trump.us', 'password', '1604129987', X'BE76648F49F24FBE9BC434BD8C23C70E'),
-(X'70A64B5443C34C18BBEC64590FF7E0CC', 'Justing Trudeau', 'justin@trudeau.ca', 'password', '1504249224', X'3C37571B0F494FED875845BFAE428B29'),
-(X'ABB04B9F5D1040DD9076EB27CA76891A', 'Vladimir Putin', 'vladimir@putin.tu', 'password', '1504249224', X'7AC613D5538745E58C9F9F49A0F271E1');
+INSERT INTO `users` (`id`, `name`, `email`, `password`, `secret_key`, `created`, `last_visit_id`) VALUES
+(X'0DD03A597DBC4D0081073271B3345434', 'Angela Merkel', 'angela@merkel.de', 'password', HEX(RANDOM_BYTES(32)), '1504249224', X'8A0BE660EBC64C47AF813F7123977993'),
+(X'1CD89E11602A4186AFBFE0149B59EB08', 'Emmanuel Macron', 'emmanuel@macron.fr', 'password', HEX(RANDOM_BYTES(32)), '1504249224', X'BE76648F49F24FBE9BC434BD8C23C70E'),
+(X'6E27EA06A7164C89AF88813749A8BD48', 'Donald Trump', 'donalt@trump.us', 'password', HEX(RANDOM_BYTES(32)), '1604129987', X'BE76648F49F24FBE9BC434BD8C23C70E'),
+(X'70A64B5443C34C18BBEC64590FF7E0CC', 'Justing Trudeau', 'justin@trudeau.ca', 'password', HEX(RANDOM_BYTES(32)), '1504249224', X'3C37571B0F494FED875845BFAE428B29'),
+(X'ABB04B9F5D1040DD9076EB27CA76891A', 'Vladimir Putin', 'vladimir@putin.tu', 'password', HEX(RANDOM_BYTES(32)), '1504249224', X'7AC613D5538745E58C9F9F49A0F271E1');
 
 INSERT INTO `users_has_roles` (`users_id`, `roles_id`) VALUES
 (X'0DD03A597DBC4D0081073271B3345434', X'B479B3577E2547FA8DBABFDAEECC6C2C'),

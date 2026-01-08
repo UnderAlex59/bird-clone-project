@@ -34,8 +34,8 @@ public class MessagesService {
 
     Map<String, Object> response = new HashMap<>();
 
-    public Mono<ResponseEntity<Map<String, Object>>> createMessage(Message message) {
-        return umsConnector.retrieveUmsData(uriUser + "/" + message.getAuthor().toString())
+    public Mono<ResponseEntity<Map<String, Object>>> createMessage(Message message, String authorizationHeader) {
+        return umsConnector.retrieveUmsData(uriUser + "/" + message.getAuthor().toString(), authorizationHeader)
             .flatMap(res -> {
             UUID messageId = null;
             User user = HttpResponseExtractor.extractDataFromHttpClientResponse(res, User.class);
@@ -89,8 +89,10 @@ public class MessagesService {
 
     }
 
-    public Mono<ResponseEntity<Map<String, Object>>> getMessagesForSubscriberById(UUID subscriberId) {
-        return umsConnector.retrieveUmsData(uriUser + "/" + subscriberId.toString()).flatMap(res -> {
+    public Mono<ResponseEntity<Map<String, Object>>> getMessagesForSubscriberById(UUID subscriberId,
+            String authorizationHeader) {
+        return umsConnector.retrieveUmsData(uriUser + "/" + subscriberId.toString(), authorizationHeader)
+                .flatMap(res -> {
             User user = HttpResponseExtractor.extractDataFromHttpClientResponse(res, User.class);
             List<Message> messages = new ArrayList<>();
 

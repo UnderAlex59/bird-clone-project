@@ -7,6 +7,7 @@ import java.util.UUID;
 import com.ziminpro.twitter.dao.SubscriptionRepository;
 import com.ziminpro.twitter.dtos.Constants;
 import com.ziminpro.twitter.dtos.HttpResponseExtractor;
+import com.ziminpro.twitter.dtos.ProducerSubscribers;
 import com.ziminpro.twitter.dtos.Roles;
 import com.ziminpro.twitter.dtos.Subscription;
 import com.ziminpro.twitter.dtos.User;
@@ -32,8 +33,9 @@ public class SubscriptionsService {
 
     Map<String, Object> response = new HashMap<>();
 
-    public Mono<ResponseEntity<Map<String, Object>>> getSubscriptionsForSubscriberById(UUID subscriberId) {
-        return umsConnector.retrieveUmsData(uriUser + "/" + subscriberId.toString()).flatMap(res -> {
+    public Mono<ResponseEntity<Map<String, Object>>> getSubscriptionsForSubscriberById(UUID subscriberId,
+            String authorizationHeader) {
+        return umsConnector.retrieveUmsData(uriUser + "/" + subscriberId.toString(), authorizationHeader).flatMap(res -> {
             Subscription subscriptions = new Subscription();
             User user = HttpResponseExtractor.extractDataFromHttpClientResponse(res, User.class);
 
@@ -55,8 +57,34 @@ public class SubscriptionsService {
         });
     }
 
-    public Mono<ResponseEntity<Map<String, Object>>> createSubscription(Subscription subscription) {
-        return umsConnector.retrieveUmsData(uriUser + "/" + subscription.getSubscriber().toString()).flatMap(res -> {
+    public Mono<ResponseEntity<Map<String, Object>>> getSubscribersForProducerById(UUID producerId,
+            String authorizationHeader) {
+        return umsConnector.retrieveUmsData(uriUser + "/" + producerId.toString(), authorizationHeader).flatMap(res -> {
+            ProducerSubscribers subscribers = new ProducerSubscribers();
+            User user = HttpResponseExtractor.extractDataFromHttpClientResponse(res, User.class);
+
+            if (user.hasRole(Roles.PRODUCER)) {
+                subscribers = subscriptionRepository.getSubscribers(producerId);
+            }
+            if (subscribers.getProducer() == null) {
+                response.put(Constants.CODE, "404");
+                response.put(Constants.MESSAGE,
+                        "Subscribers for producer with ID " + producerId.toString() + " is not found");
+                response.put(Constants.DATA, subscribers);
+            } else {
+                response.put(Constants.CODE, "201");
+                response.put(Constants.MESSAGE, "Subscribers have been retrieved");
+                response.put(Constants.DATA, subscribers);
+            }
+            return Mono.just(ResponseEntity.ok().header(HttpHeaders.CONTENT_TYPE, Constants.APPLICATION_JSON)
+                    .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(response));
+        });
+    }
+
+    public Mono<ResponseEntity<Map<String, Object>>> createSubscription(Subscription subscription,
+            String authorizationHeader) {
+        return umsConnector.retrieveUmsData(uriUser + "/" + subscription.getSubscriber().toString(),
+                authorizationHeader).flatMap(res -> {
             boolean subscriptionId = false;
             User user = HttpResponseExtractor.extractDataFromHttpClientResponse(res, User.class);
 
@@ -77,8 +105,10 @@ public class SubscriptionsService {
         });
     }
 
-    public Mono<ResponseEntity<Map<String, Object>>> updateSubscriptionForSubscriberById(Subscription subscription) {
-        return umsConnector.retrieveUmsData(uriUser + "/" + subscription.getSubscriber().toString()).flatMap(res -> {
+    public Mono<ResponseEntity<Map<String, Object>>> updateSubscriptionForSubscriberById(Subscription subscription,
+            String authorizationHeader) {
+        return umsConnector.retrieveUmsData(uriUser + "/" + subscription.getSubscriber().toString(),
+                authorizationHeader).flatMap(res -> {
             boolean subscriptionId = false;
             User user = HttpResponseExtractor.extractDataFromHttpClientResponse(res, User.class);
 
@@ -99,8 +129,10 @@ public class SubscriptionsService {
         });
     }
 
-    public Mono<ResponseEntity<Map<String, Object>>> deleteSubscriptionForSubscriberById(UUID subscriberId) {
-        return umsConnector.retrieveUmsData(uriUser + "/" + subscriberId.toString()).flatMap(res -> {
+    public Mono<ResponseEntity<Map<String, Object>>> deleteSubscriptionForSubscriberById(UUID subscriberId,
+            String authorizationHeader) {
+        return umsConnector.retrieveUmsData(uriUser + "/" + subscriberId.toString(), authorizationHeader)
+                .flatMap(res -> {
             boolean subscriptionId = false;
             User user = HttpResponseExtractor.extractDataFromHttpClientResponse(res, User.class);
 

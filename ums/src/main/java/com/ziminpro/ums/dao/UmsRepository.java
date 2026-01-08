@@ -16,5 +16,7 @@ public interface UmsRepository {
 
     UUID createUser(User user);
 
-	int deleteUser(UUID userId);
+    int updateUserRoles(UUID userId, java.util.List<String> roles);
+
+    int deleteUser(UUID userId);
 }

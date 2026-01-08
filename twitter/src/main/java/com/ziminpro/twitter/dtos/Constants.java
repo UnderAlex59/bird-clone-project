@@ -15,6 +15,7 @@ public class Constants {
         public static final String URI_SUBSCRIBER = "/messages/subscriber";
         public static final String URI_SUBSCRIPTION = "/subscriptions/subscriber";
         public static final String URI_SUBSCRIPTIONS = "/subscriptions";
+        public static final String URI_PRODUCER_SUBSCRIBERS = "/subscriptions/producer";
 
         // HEADERS Section
         public static final String APPLICATION_JSON = "application/json";
@@ -51,4 +52,6 @@ public class Constants {
                         + " WHERE `subscriber_id`=UUID_TO_BIN(?);";
         public static final String GET_SUBSCRIPTION = "SELECT * FROM " + TABLE_SUBSCRIPTIONS
                         + " WHERE subscriber_id=UUID_TO_BIN(?);";
+        public static final String GET_SUBSCRIBERS_FOR_PRODUCER = "SELECT subscriber_id, producer_id FROM "
+                        + TABLE_SUBSCRIPTIONS + " WHERE producer_id=UUID_TO_BIN(?);";
 }

@@ -5,8 +5,10 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import com.ziminpro.ums.auth.AuthService;
 import com.ziminpro.ums.dao.UmsRepository;
 import com.ziminpro.ums.dtos.Constants;
+import com.ziminpro.ums.dtos.RoleUpdateRequest;
 import com.ziminpro.ums.dtos.User;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,9 @@ public class UserController {
 
     @Autowired
     private UmsRepository umsRepository;
+
+    @Autowired
+    private AuthService authService;
 
     Map<String, Object> response = new HashMap<>();
 
@@ -60,18 +65,29 @@ public class UserController {
 
     @RequestMapping(method = RequestMethod.POST, path = "/users/user", consumes = Constants.APPLICATION_JSON)
     public Mono<ResponseEntity<Map<String, Object>>> createUser(@RequestBody User user) {
-        UUID userId = umsRepository.createUser(user);
-        if (userId == null) {
-            response.put(Constants.CODE, "500");
-            response.put(Constants.MESSAGE, "User has not been created");
-            response.put(Constants.DATA, "Check email for duplicates first");
-        } else {
-            response.put(Constants.CODE, "201");
-            response.put(Constants.MESSAGE, "User created");
-            response.put(Constants.DATA, userId.toString());
-        }
-        return Mono.just(ResponseEntity.ok().header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
-                .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(response));
+        return authService.createUser(user)
+                .map(userId -> {
+                    Map<String, Object> payload = new HashMap<>();
+                    if (userId == null) {
+                        payload.put(Constants.CODE, "500");
+                        payload.put(Constants.MESSAGE, "User has not been created");
+                        payload.put(Constants.DATA, "Check email for duplicates first");
+                    } else {
+                        payload.put(Constants.CODE, "201");
+                        payload.put(Constants.MESSAGE, "User created");
+                        payload.put(Constants.DATA, userId.toString());
+                    }
+                    return ResponseEntity.ok().header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
+                            .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(payload);
+                })
+                .onErrorResume(ex -> {
+                    Map<String, Object> payload = new HashMap<>();
+                    payload.put(Constants.CODE, "400");
+                    payload.put(Constants.MESSAGE, ex.getMessage());
+                    payload.put(Constants.DATA, false);
+                    return Mono.just(ResponseEntity.ok().header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
+                            .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(payload));
+                });
     }
 
     @RequestMapping(method = RequestMethod.DELETE, path = "/users/user/{user-id}")
@@ -88,5 +104,48 @@ public class UserController {
         }
         return Mono.just(ResponseEntity.ok().header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
                 .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(response));
+    }
+
+    @RequestMapping(method = RequestMethod.PUT, path = "/users/user/{user-id}/roles", consumes = Constants.APPLICATION_JSON)
+    public Mono<ResponseEntity<Map<String, Object>>> updateUserRoles(@PathVariable(value = "user-id") String userId,
+                                                                     @RequestBody RoleUpdateRequest request) {
+        Map<String, Object> payload = new HashMap<>();
+        UUID targetId;
+        try {
+            targetId = UUID.fromString(userId);
+        } catch (IllegalArgumentException ex) {
+            payload.put(Constants.CODE, "400");
+            payload.put(Constants.MESSAGE, "Invalid user id");
+            payload.put(Constants.DATA, false);
+            return Mono.just(ResponseEntity.ok().header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
+                    .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(payload));
+        }
+
+        User targetUser = umsRepository.findUserByID(targetId);
+        if (targetUser.getId() == null) {
+            payload.put(Constants.CODE, "404");
+            payload.put(Constants.MESSAGE, "User have not been found");
+            payload.put(Constants.DATA, false);
+            return Mono.just(ResponseEntity.ok().header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
+                    .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(payload));
+        }
+
+        try {
+            int assigned = umsRepository.updateUserRoles(targetId, request == null ? null : request.roles());
+            payload.put(Constants.CODE, "200");
+            payload.put(Constants.MESSAGE, "User roles updated");
+            payload.put(Constants.DATA, assigned);
+        } catch (IllegalArgumentException ex) {
+            payload.put(Constants.CODE, "400");
+            payload.put(Constants.MESSAGE, ex.getMessage());
+            payload.put(Constants.DATA, false);
+        } catch (Exception ex) {
+            payload.put(Constants.CODE, "500");
+            payload.put(Constants.MESSAGE, "Failed to update roles");
+            payload.put(Constants.DATA, false);
+        }
+
+        return Mono.just(ResponseEntity.ok().header(Constants.CONTENT_TYPE, Constants.APPLICATION_JSON)
+                .header(Constants.ACCEPT, Constants.APPLICATION_JSON).body(payload));
     }
 }

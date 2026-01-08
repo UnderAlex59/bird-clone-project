@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apps-frontend
+  namespace: apps
+  labels:
+    app.kubernetes.io/part-of: bird
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apps-apis
+  namespace: apps
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  labels:
+    app.kubernetes.io/part-of: bird
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app.local
+      http:
+        paths:
+          - path: /api/ums(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ums
+                port:
+                  number: 9000
+          - path: /api/twitter(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: twitter
+                port:
+                  number: 9001

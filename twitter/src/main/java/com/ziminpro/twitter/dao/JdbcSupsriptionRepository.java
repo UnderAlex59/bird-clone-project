@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.ziminpro.twitter.dtos.Constants;
+import com.ziminpro.twitter.dtos.ProducerSubscribers;
 import com.ziminpro.twitter.dtos.Subscription;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -59,6 +60,24 @@ public class JdbcSupsriptionRepository implements SubscriptionRepository {
         }
         // better to return empty message instead of null (for automatic processing)
         return subscription;
+    }
+
+    @Override
+    public ProducerSubscribers getSubscribers(UUID producerId) {
+        List<ProducerSubscribers> subscriptions = jdbcTemplate.query(Constants.GET_SUBSCRIBERS_FOR_PRODUCER,
+                (rs, rowNum) -> new ProducerSubscribers(DaoHelper.bytesArrayToUuid(rs.getBytes("producer_id")),
+                        List.of(DaoHelper.bytesArrayToUuid(rs.getBytes("subscriber_id")))),
+                producerId.toString());
+
+        ProducerSubscribers subscribers = new ProducerSubscribers();
+        for (ProducerSubscribers entry : subscriptions) {
+            if (subscribers.getProducer() == null) {
+                subscribers.setProducer(entry.getProducer());
+            }
+            subscribers.addSubscriber(entry.getSubscribers().getFirst());
+        }
+        // better to return empty message instead of null (for automatic processing)
+        return subscribers;
     }
 
     @Override

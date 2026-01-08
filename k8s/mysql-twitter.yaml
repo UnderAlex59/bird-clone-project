@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-twitter
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: mysql-twitter
+    app.kubernetes.io/part-of: bird
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql-twitter
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-twitter
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: mysql-twitter
+    app.kubernetes.io/part-of: bird
+spec:
+  serviceName: mysql-twitter
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-twitter
+  template:
+    metadata:
+      labels:
+        app: mysql-twitter
+        app.kubernetes.io/name: mysql-twitter
+        app.kubernetes.io/part-of: bird
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-twitter-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-twitter-secret
+                  key: MYSQL_DATABASE
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: mysql-twitter
+          app.kubernetes.io/part-of: bird
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 2Gi

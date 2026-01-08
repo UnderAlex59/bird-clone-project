@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: twitter
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: twitter
+    app.kubernetes.io/part-of: bird
+spec:
+  type: ClusterIP
+  selector:
+    app: twitter
+  ports:
+    - name: http
+      port: 9001
+      targetPort: 9001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: twitter
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: twitter
+    app.kubernetes.io/part-of: bird
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: twitter
+  template:
+    metadata:
+      labels:
+        app: twitter
+        app.kubernetes.io/name: twitter
+        app.kubernetes.io/part-of: bird
+    spec:
+      initContainers:
+        - name: wait-for-mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-twitter-secret
+                  key: MYSQL_ROOT_PASSWORD
+          command:
+            - sh
+            - -c
+            - |
+              until mysqladmin ping -h mysql-twitter -u root -p"$MYSQL_PASSWORD" --silent; do
+                echo "waiting for mysql-twitter";
+                sleep 2;
+              done
+      containers:
+        - name: twitter
+          image: twitter:2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9001
+              name: http
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://mysql-twitter:3306/twitter?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "root"
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-twitter-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: UMS_HOST
+              value: "http://ums"
+            - name: UMS_PORT
+              value: "9000"
+            - name: SERVER_PORT
+              value: "9001"

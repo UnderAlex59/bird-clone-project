@@ -20,11 +20,18 @@ public class UMSConnector {
     @Value("${ums.port}")
     private String uriUmsPort;
 
-    public Mono<Object> retrieveUmsData(String uri) {
+    public Mono<Object> retrieveUmsData(String uri, String authorizationHeader) {
         WebClient client = WebClient.builder().baseUrl(uriUmsHost + ":" + uriUmsPort)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE).build();
 
-	    return client.method(HttpMethod.GET).uri(uri).accept(MediaType.APPLICATION_JSON)
-	            .acceptCharset(StandardCharsets.UTF_8).retrieve().bodyToMono(Object.class);
+        WebClient.RequestHeadersSpec<?> request = client.method(HttpMethod.GET).uri(uri)
+                .accept(MediaType.APPLICATION_JSON)
+                .acceptCharset(StandardCharsets.UTF_8);
+
+        if (authorizationHeader != null && !authorizationHeader.isBlank()) {
+            request = request.header(HttpHeaders.AUTHORIZATION, authorizationHeader);
+        }
+
+        return request.retrieve().bodyToMono(Object.class);
     }
 }
