@@ -1,0 +1,631 @@
+﻿============================================================
+ОТЧЁТ ПО УЧЕБНОМУ ПРОЕКТУ «BIRD»
+Учебный Twitter (X) на микросервисах
+============================================================
+
+Отчёт составлен по содержимому репозитория `bird` (папка `c:\code\bird`).
+Проект позиционируется как учебный: цель — объединить и применить знания по
+архитектуре, микросервисам, базам данных, безопасности и фронтенду.
+
+
+------------------------------------------------------------
+СОДЕРЖАНИЕ
+------------------------------------------------------------
+1. Введение: цель и функциональность
+2. Структура репозитория и артефакты
+3. Архитектура системы (уровень компонентов)
+4. Микросервисы (backend)
+   4.1 UMS (User Management Service)
+   4.2 Twitter (сервис сообщений и подписок)
+5. Безопасность: аутентификация/авторизация (JWT + GitHub OAuth)
+6. Данные и базы данных (MySQL + Flyway)
+7. Фронтенд (React/Vite): архитектура, UX и роль-based доступ
+8. Инфраструктура и развёртывание (Docker, Kubernetes, Ingress, NetworkPolicy)
+9. Тестирование и инструменты (Postman, Actuator)
+10. Итоги и возможные улучшения
+
+
+============================================================
+1. ВВЕДЕНИЕ: ЦЕЛЬ И ФУНКЦИОНАЛЬНОСТЬ
+============================================================
+
+Bird — учебная версия Twitter (X), состоящая из нескольких сервисов и фронтенда.
+Система позволяет:
+- управлять пользователями и ролями (UMS);
+- аутентифицироваться по email/паролю и через GitHub OAuth (UMS);
+- получать JWT-токен и использовать его для запросов к API;
+- публиковать короткие сообщения (Twitter);
+- подписываться на авторов и получать «ленту» из сообщений подписок (Twitter);
+- получать список подписчиков для автора (Twitter);
+- управлять доступом по ролям (ADMIN / SUBSCRIBER / PRODUCER) во фронтенде и на API.
+
+Ключевая учебная идея: показать границы микросервисов (Auth/Users vs Messages),
+разделение данных (database-per-service), безопасность в распределённой системе,
+контейнеризацию и деплой в Kubernetes с сетевыми политиками.
+
+
+============================================================
+2. СТРУКТУРА РЕПОЗИТОРИЯ И АРТЕФАКТЫ
+============================================================
+
+В корне репозитория:
+- `README.md` — описание проекта и быстрый старт.
+- `docker-compose.yml` — локальный запуск двух MySQL (для UMS и Twitter).
+- `DOCKER-BUILD.md` — сборка Docker-образов сервисов.
+- `docs/` — документация по аутентификации (JWT + GitHub OAuth).
+- `database/` — справочные SQL-дампы и ERD-диаграммы (PNG).
+- `requests/` — коллекции Postman для API.
+- `k8s/` — Kubernetes-манифесты (namespace, secrets, deployments, ingress, networkpolicies).
+- `ums/` — backend-сервис пользователей и авторизации.
+- `twitter/` — backend-сервис сообщений/подписок.
+- `frontend/` — React-клиент.
+
+Важно: «источником истины» по схеме БД являются миграции Flyway в
+`ums/src/main/resources/db/migration/` и `twitter/src/main/resources/db/migration/`.
+Папка `database/` оставлена для справки (так и указано в `README.md`).
+
+
+============================================================
+3. АРХИТЕКТУРА СИСТЕМЫ (УРОВЕНЬ КОМПОНЕНТОВ)
+============================================================
+
+3.1. Основные компоненты
+
+Система состоит из 5 ключевых компонентов:
+1) Frontend (React/Vite)
+2) UMS (User Management Service) — users + auth
+3) Twitter service — messages + subscriptions
+4) MySQL для UMS
+5) MySQL для Twitter
+
+3.2. Взаимодействие компонентов (логическая схема)
+
+Вариант A: локально (без Kubernetes)
+------------------------------------------------------------
+Browser
+  |
+  |  (прямой доступ к сервисам)
+  |--> UMS (http://localhost:9000)
+  |--> Twitter (http://localhost:9001)
+  |
+  |  (фронтенд отдельно — dev сервер Vite, требует проксирования /api/*)
+  |--> Frontend (http://localhost:5173)
+------------------------------------------------------------
+Базы данных поднимаются через `docker-compose.yml`:
+- MySQL (UMS)    : localhost:3306
+- MySQL (Twitter): localhost:3308
+
+Вариант B: Kubernetes (рекомендуемый «учебный прод» контур)
+------------------------------------------------------------
+Browser
+  |
+  v
+NGINX Ingress (host: app.local)
+  |-- /               -> Service frontend:80  -> Pod frontend
+  |-- /api/ums/*       -> Service ums:9000    -> Pod ums
+  |-- /api/twitter/*   -> Service twitter:9001-> Pod twitter
+  |
+  +--> (внутри кластера)
+        Pod twitter -> Service ums:9000            (интроспекция токенов, проверка ролей)
+        Pod ums     -> Service mysql-ums:3306      (БД UMS)
+        Pod twitter -> Service mysql-twitter:3306  (БД Twitter)
+        Pod ums     -> GitHub:443                  (OAuth)
+------------------------------------------------------------
+
+3.3. Микросервисные границы и учебные акценты
+
+Принципы, которые реализованы в проекте:
+- Разделение доменов:
+  - UMS отвечает за identity/auth (пользователи, роли, выдача токенов).
+  - Twitter отвечает за контент и социальный граф (сообщения, подписки).
+- Разделение данных: каждый сервис владеет своей БД (database-per-service).
+- Межсервисная интеграция по HTTP (synchronous REST):
+  - Twitter проверяет токен через интроспекцию в UMS.
+  - Twitter запрашивает профиль пользователя в UMS, чтобы сверить роль перед
+    выполнением бизнес-операций.
+- В прод-контуре используется единый домен и префиксы `/api/ums` и `/api/twitter`,
+  что решает проблему CORS и упрощает фронтенду работу с API.
+
+Компромиссы микросервисов (что демонстрирует проект):
+- Добавляется сетевое взаимодействие и задержки между сервисами.
+- Появляется необходимость согласованной безопасности (issuer, роли, токены).
+- Появляются дополнительные артефакты: контейнеры, манифесты, секреты, политики сети.
+
+
+============================================================
+4. МИКРОСЕРВИСЫ (BACKEND)
+============================================================
+
+Общее для обоих сервисов:
+- Язык/платформа: Java 21.
+- Framework: Spring Boot 3.5.7.
+- Web: Spring WebFlux (реактивный стек, `Mono`).
+- Security: Spring Security (Resource Server).
+- Доступ к данным: JDBC (`JdbcTemplate`) + MySQL 8.
+- Миграции: Flyway.
+- Наблюдаемость: Spring Actuator (эндпоинты `/actuator/**`).
+- Сборка: Gradle.
+- Контейнеризация: Docker multi-stage (сборка в Gradle-контейнере, рантайм — JRE 21).
+
+
+------------------------------------------------------------
+4.1. UMS (User Management Service)
+------------------------------------------------------------
+
+Роль UMS в системе:
+- регистрация и логин пользователей;
+- хранение ролей и управление ролями пользователей;
+- выпуск JWT-токенов;
+- интроспекция токенов (проверка валидности);
+- интеграция с GitHub OAuth (как внешний провайдер логина).
+
+Порты и конфигурация (по умолчанию):
+- HTTP: `server.port = 9000` (см. `ums/src/main/resources/application.yaml`).
+- MySQL: `jdbc:mysql://0.0.0.0:3306/ums` (user: `user`, password: `qwerty123`).
+- JWT issuer/TTL:
+  - `app.jwt.issuer = ums-service`
+  - `app.jwt.ttl-seconds = 3600`
+- GitHub OAuth (через env): `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI`.
+
+Ключевые HTTP-эндпоинты (см. `README.md`, `ums/README.md`, `AuthController`):
+- `POST /auth/register` — регистрация (возвращает JWT).
+- `POST /auth/login` — логин (возвращает JWT).
+- `POST /auth/rotate-secret` — ротация user-секрета (инвалидация старых JWT).
+- `POST /auth/rotate-secret/{user-id}` — ротация секрета для пользователя (требует роль ADMIN).
+- `POST /auth/introspect` — интроспекция JWT (возвращает `{active, sub, roles}`).
+- `GET /users` — список пользователей (требует Bearer-токен).
+- `GET /users/user/{user-id}` — получить пользователя по id (требует Bearer-токен).
+- `POST /users/user` — создать пользователя (требует Bearer-токен).
+- `PUT /users/user/{user-id}/roles` — обновить роли пользователя (требует Bearer-токен).
+- `DELETE /users/user/{user-id}` — удалить пользователя (требует Bearer-токен).
+- `GET /roles` — справочник ролей (требует Bearer-токен).
+
+Формат ответов:
+- Большинство контроллеров возвращают JSON-объект с полями:
+  - `code`    — строковый код бизнес-результата,
+  - `message` — описание,
+  - `data`    — полезная нагрузка.
+  Это видно, например, в `AuthController`, `UserController`, `RolesController`.
+  Важно: HTTP-статус при этом часто остаётся `200 OK`, а «статус» кодируется в поле `code`.
+
+Слой безопасности (см. `ums/src/main/java/.../config/SecurityConfig.java`):
+- Публичные маршруты без токена:
+  - `/auth/register`, `/auth/login`, `/auth/introspect`
+  - `/oauth2/**`, `/login/**`, `/actuator/**`
+- Остальные маршруты требуют аутентификации (Bearer JWT).
+- Для OAuth2 входа подключён handler `GithubAuthSuccessHandler`.
+
+Организация кода (основные модули):
+- `controllers/` — REST-контроллеры (Auth, Users, Roles).
+- `auth/` — DTO и бизнес-логика auth (AuthService, JwtService, декодер JWT).
+- `dao/` — репозитории и SQL-доступ через `JdbcTemplate` (JdbcUmsRepository).
+- `security/` — GitHub OAuth success handler.
+- `dtos/` — модели данных/ответов.
+
+Реактивность и работа с блокирующим JDBC:
+- В `AuthService` блокирующие вызовы БД обёрнуты в `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`.
+- В контроллерах `GET /users`, `GET /roles` и части Twitter-логики встречаются прямые вызовы JDBC до `Mono.just(...)`.
+  Для учебного проекта это допустимо, но в «боевом» WebFlux обычно выносят блокирующие операции на отдельный пул.
+
+
+------------------------------------------------------------
+4.2. Twitter (сервис сообщений и подписок)
+------------------------------------------------------------
+
+Роль Twitter-сервиса в системе:
+- хранение сообщений (короткий текст до 140 символов);
+- хранение подписок (subscriber -> producers);
+- выдача ленты подписчика (сообщения авторов, на которых подписан пользователь);
+- выдача списка подписчиков для автора.
+
+Порты и конфигурация (по умолчанию):
+- HTTP: `server.port = 9001` (см. `twitter/src/main/resources/application.yaml`).
+- MySQL: `jdbc:mysql://0.0.0.0:3308/twitter` (user: `root`, password: `passw`).
+- UMS для интеграции:
+  - `ums.host = http://localhost`
+  - `ums.port = 9000`
+  - `ums.paths.user = /users/user`
+  - `ums.paths.introspect = /auth/introspect`
+- JWT issuer: `app.jwt.issuer = ums-service` (должен совпадать с UMS).
+
+Ключевые HTTP-эндпоинты (см. `twitter/README.md`, `MessageController`, `SubscriptionController`):
+Сообщения:
+- `GET  /messages/message/{message-id}` — сообщение по id.
+- `GET  /messages/producer/{producer-id}` — все сообщения продьюсера.
+- `GET  /messages/subscriber/{subscriber-id}` — лента подписчика (требует роль SUBSCRIBER).
+- `POST /messages/message` — создать сообщение (требует роль PRODUCER у автора).
+- `DELETE /messages/message/{message-id}` — удалить сообщение.
+
+Подписки:
+- `GET    /subscriptions/subscriber/{subscriber-id}` — подписки пользователя (роль SUBSCRIBER).
+- `GET    /subscriptions/producer/{producer-id}` — подписчики продьюсера (роль PRODUCER).
+- `POST   /subscriptions` — создать подписки.
+- `PUT    /subscriptions` — обновить подписки (пересоздание: delete + insert).
+- `DELETE /subscriptions/subscriber/{subscriber-id}` — удалить все подписки пользователя.
+
+Интеграция с UMS (две задачи):
+1) Проверка токена на входе в сервис:
+   - Включён Resource Server (Spring Security).
+   - Используется кастомный `ReactiveJwtDecoder` — `RemoteIntrospectionJwtDecoder`.
+   - Декодер парсит JWT, затем вызывает UMS `POST /auth/introspect`.
+   - Проверяет `active`, issuer и соответствие `sub` (интроспекция vs сам JWT).
+   - Роли из интроспекции кладутся в claim `roles` и мапятся в `ROLE_<ROLE>`.
+
+2) Проверка роли перед бизнес-операцией:
+   - Сервис дополнительно запрашивает UMS `/users/user/{id}` через `UMSConnector`,
+     передавая `Authorization: Bearer <token>`.
+   - Из ответа UMS извлекается поле `data`, конвертируется в `User`, затем делается проверка роли
+     (`user.hasRole(...)`) перед выполнением операции (например, создание сообщения или подписки).
+
+Слой данных:
+- Репозитории на `JdbcTemplate`: `JdbcMessageRepository`, `JdbcSupsriptionRepository`.
+- Идентификаторы в MySQL хранятся как `BINARY(16)` и пишутся через `UUID_TO_BIN(?)`.
+
+
+============================================================
+5. БЕЗОПАСНОСТЬ: АУТЕНТИФИКАЦИЯ/АВТОРИЗАЦИЯ (JWT + GITHUB OAUTH)
+============================================================
+
+5.1. JWT: ключевые решения
+
+UMS выдаёт JWT (HS256) со стандартными и пользовательскими claim’ами:
+- `iss` — issuer (`app.jwt.issuer`, по умолчанию `ums-service`)
+- `iat` — время выпуска
+- `exp` — время истечения (`app.jwt.ttl-seconds`, по умолчанию 3600 секунд)
+- `sub` — UUID пользователя
+- `email` — email пользователя
+- `roles` — список ролей (например, `["SUBSCRIBER","PRODUCER"]`)
+
+Ключ подписи JWT — необычное, но учебно показательное решение:
+- для каждого пользователя хранится свой `secret_key` (`users.secret_key`);
+- токен подписывается «секретом пользователя», а не одним общим секретом на сервис.
+
+Плюсы такого решения (в контексте учебного проекта):
+- можно «точечно» инвалидировать токены конкретного пользователя:
+  достаточно сменить его `secret_key`.
+
+Минусы/компромиссы:
+- проверка подписи требует доступа к данным пользователя (к БД или к кэшу),
+  либо отдельного механизма распространения ключей — это усложняет масштабирование.
+
+5.2. Валидация токена в UMS
+
+UMS использует кастомный декодер `UserSecretJwtDecoder`:
+- парсит JWT;
+- берёт `sub` (userId);
+- загружает пользователя и его `secret_key`;
+- проверяет подпись HS256;
+- дополнительно валидирует issuer и сроки жизни (через `JwtValidators.createDefaultWithIssuer`).
+
+5.3. Интроспекция токена и валидация в Twitter
+
+Twitter-сервис использует «удалённую интроспекцию»:
+- на каждый входящий запрос (требующий auth) токен парсится и отправляется в UMS:
+  `POST /auth/introspect { "token": "<jwt>" }`.
+- UMS отвечает `active: true/false`, `sub`, `roles`.
+- Twitter отклоняет токен при `active=false`, проверяет issuer и `sub`.
+
+Это подчёркивает типичный для микросервисов вопрос: «кто является источником истины
+по авторизации?» В Bird им является UMS.
+
+5.4. GitHub OAuth
+
+Поток:
+1) Фронтенд инициирует логин: `GET /oauth2/authorization/github` (через UMS).
+2) UMS получает callback от GitHub, получает профиль, связывает/создаёт пользователя:
+   - находит `provider_user_id` (GitHub id);
+   - ищет связь в таблице `user_identities`;
+   - при необходимости создаёт пользователя и связь.
+3) UMS создаёт `AuthResponse` (JWT + user + expiresAt).
+4) UMS делает редирект на `/login?auth=<base64url(AuthResponse)>`.
+5) Фронтенд в `main.tsx` читает параметр `auth`, декодирует, сохраняет сессию.
+
+Сессия хранится на фронтенде:
+- `rememberMe=true` -> `localStorage`, иначе `sessionStorage`.
+- при истечении (`expiresAt`) сессия очищается.
+- при ответе API `401` фронтенд делает logout и редиректит на `/login`.
+
+
+============================================================
+6. ДАННЫЕ И БАЗЫ ДАННЫХ (MYSQL + FLYWAY)
+============================================================
+
+6.1. Общий подход к данным
+
+В проекте используется паттерн database-per-service:
+- UMS владеет своей схемой `ums` и хранит пользователей/роли/секреты.
+- Twitter владеет своей схемой `twitter` и хранит сообщения/подписки.
+
+Это соответствует микросервисному принципу «данные принадлежат сервису».
+В результате:
+- нет прямых JOIN между данными разных сервисов;
+- интеграция выполняется через API (Twitter -> UMS).
+
+6.2. UMS: схема данных
+
+Миграции: `ums/src/main/resources/db/migration/`
+- `V1__init.sql` — базовые таблицы и seed-данные.
+- `V2__auth.sql` — таблица `user_identities` для OAuth.
+
+Основные таблицы (упрощённо):
+- `users`
+  - `id` (BINARY(16), PK) — UUID пользователя
+  - `name`, `email` (email уникален)
+  - `password` (хеш BCrypt или legacy-plaintext для старых записей)
+  - `secret_key` (VARCHAR(64)) — ключ подписи JWT для пользователя
+  - `created` (int epoch seconds)
+  - `last_visit_id` (BINARY(16), FK -> `last_visit.id`)
+- `roles`
+  - `id` (BINARY(16), PK)
+  - `name` (ADMIN / SUBSCRIBER / PRODUCER)
+  - `description`
+- `users_has_roles` (many-to-many)
+  - `users_id` (FK -> users.id)
+  - `roles_id` (FK -> roles.id)
+  - PK: (`users_id`, `roles_id`)
+- `last_visit`
+  - `id` (BINARY(16), PK)
+  - `in`, `out` (int epoch seconds)
+- `user_identities` (OAuth identities)
+  - `id` (BINARY(16), PK)
+  - `user_id` (FK -> users.id)
+  - `provider` (например `github`)
+  - `provider_user_id` (id пользователя у провайдера)
+  - `email` (опционально)
+  - `created` (int epoch seconds)
+  - уникальность: (`provider`, `provider_user_id`)
+
+Особенность реализации UUID:
+- В SQL используется `UUID_TO_BIN(?)` и хранение `BINARY(16)`.
+- В Java есть утилита `DaoHelper` (bytes <-> UUID).
+Плюсы: компактность и скорость индексов по сравнению с хранением UUID как строки.
+
+Seed-данные:
+- в `V1__init.sql` создаются роли и набор тестовых пользователей, включая ADMIN.
+  Это упрощает демонстрацию сценариев (в т.ч. админ-панели на фронте).
+
+6.3. Twitter: схема данных
+
+Миграции: `twitter/src/main/resources/db/migration/`
+- `V1__init.sql` — таблицы и seed-данные.
+
+Таблицы:
+- `producers` — множество авторов (producer_id).
+- `subscribers` — множество подписчиков (subscriber_id).
+- `subscriptions` — связи подписок (subscriber_id <-> producer_id).
+- `messages` — сообщения автора:
+  - `id` (BINARY(16))
+  - `producer_id` (BINARY(16)) — автор/продьюсер
+  - `content` (VARCHAR(140))
+  - `created` (int epoch seconds)
+
+Бизнес-идея модели:
+- PRODUCER публикует сообщения -> `messages`.
+- SUBSCRIBER подписывается на PRODUCER -> `subscriptions`.
+- Лента SUBSCRIBER строится join’ом `subscriptions` и `messages` (внутри сервиса Twitter).
+
+6.4. Flyway и жизненный цикл схемы
+
+Flyway включён в обоих сервисах:
+- миграции применяются автоматически при старте (см. `spring.flyway.enabled=true`).
+- таким образом, сборка окружения сводится к поднятию БД и запуску сервисов.
+
+
+============================================================
+7. ФРОНТЕНД (REACT/VITE): АРХИТЕКТУРА, UX И РОЛИ
+============================================================
+
+7.1. Технологический стек
+- React 18 + TypeScript.
+- Vite (dev/build), React Router (маршрутизация).
+- Tailwind CSS + Headless UI + Heroicons (UI-слой).
+- Fetch API для запросов.
+- В контейнере — Nginx, отдающий статику.
+
+7.2. Концепция UX
+
+Фронтенд реализует «панель управления» мини-соцсетью:
+- быстрый логин (email/пароль) или вход через GitHub;
+- подсказки по ролям и доступам;
+- навигация и действия зависят от ролей;
+- встроенная «консоль» для запросов к API и админ-операций (как учебный инструмент).
+
+Визуально приложение оформлено как карточный интерфейс с нейтральной палитрой,
+градиентами и адаптивной вёрсткой (см. `frontend/src/index.css`).
+
+7.3. Маршруты и охрана маршрутов (route guards)
+
+Маршруты описаны в `frontend/src/App.tsx`:
+- `/login` — логин.
+- `/` — главная (Dashboard), требует авторизацию.
+- `/console` — консоль (workspace-режим), требует авторизацию.
+- `/subscriptions` — управление подписками, требует авторизацию (и роль SUBSCRIBER на уровне UI).
+- `/messages` — лента сообщений подписок, требует авторизацию (и роль SUBSCRIBER на уровне UI).
+- `/subscribers` — просмотр подписчиков, требует авторизацию (и роль PRODUCER на уровне UI).
+- `/admin` — админ-панель, требует роль ADMIN (`RequireAdmin`).
+- `/forbidden` — экран «нужна роль ADMIN».
+
+Технически охрана сделана компонентами:
+- `RequireAuth` — редиректит на `/login`, если нет сессии.
+- `RequireAdmin` — дополнительно проверяет `roles` и редиректит на `/forbidden`.
+
+7.4. Управление сессией и ролями
+
+Сессия хранится в `AuthProvider`:
+- `AuthSession = { token, expiresAt, user }`.
+- `user.roles` используются для UI-доступов.
+
+Хранение:
+- `rememberMe=true` -> `localStorage`;
+- иначе `sessionStorage`.
+Реализовано в `frontend/src/utils/authStorage.ts`.
+
+Обработка 401:
+- хук `useAuthFetch` ловит `response.status === 401`,
+  выполняет logout и отправляет пользователя на `/login` с сообщением.
+
+7.5. Работа с API
+
+UMS base URL для auth-эндпоинтов:
+- берётся из `VITE_AUTH_BASE_URL` (dev) либо из runtime-конфига `window.__APP_CONFIG__`.
+- в прод-сценарии по умолчанию используется `/api/ums` (через ingress).
+Реализовано в `frontend/src/config.ts`.
+
+Важно про `/api/twitter`:
+- большинство запросов к Twitter выполняются на относительный путь `/api/twitter/...`.
+  Это означает, что фронтенд ожидает reverse proxy (Ingress/NGINX) для маршрутизации
+  API на одном домене (так сделано в Kubernetes-манифестах).
+
+7.6. Основные пользовательские сценарии во фронтенде
+
+Логин:
+- email/пароль -> `POST {AUTH_BASE_URL}/auth/login` -> сохранение сессии -> редирект.
+- GitHub OAuth:
+  - кнопка ведёт на `{AUTH_BASE_URL}/oauth2/authorization/github`;
+  - после callback UMS редиректит на `/login?auth=...`;
+  - `main.tsx` декодирует и сохраняет сессию.
+
+Dashboard:
+- показывает сводку по ролям и подсказки;
+- для SUBSCRIBER подгружает ленту `/api/twitter/messages/subscriber/{userId}`;
+- для PRODUCER позволяет публиковать сообщение `/api/twitter/messages/message`;
+- подгружает число подписок и число сообщений (по роли).
+
+Подписки (SUBSCRIBER):
+- читает текущие подписки `/api/twitter/subscriptions/subscriber/{userId}`;
+- получает справочник пользователей из UMS `/api/ums/users` (для списка авторов);
+- позволяет подписаться/отписаться (обновление подписок PUT `/api/twitter/subscriptions`).
+
+Сообщения подписок (SUBSCRIBER):
+- лента сообщений + поиск по контенту/автору (локальная фильтрация).
+
+Подписчики (PRODUCER):
+- список подписчиков автора `/api/twitter/subscriptions/producer/{userId}`;
+- справочник пользователей через UMS для отображения профилей подписчиков.
+
+Админ-панель (ADMIN) / Консоль:
+- встроенный интерфейс для запросов к UMS и Twitter;
+- управление пользователями и ролями (в т.ч. ротация секрета);
+- отображение «сырого» ответа сервиса и времени выполнения (полезно для обучения API).
+
+
+============================================================
+8. ИНФРАСТРУКТУРА И РАЗВЁРТЫВАНИЕ
+============================================================
+
+8.1. Локальный запуск: Docker Compose + запуск сервисов
+
+Файл `docker-compose.yml` поднимает 2 контейнера MySQL:
+- `mysql-db` (UMS): порт 3306, база `ums`, user `user`, пароль `qwerty123`.
+- `bird` (Twitter DB): порт 3308, база `twitter`, root-пароль `passw`.
+Данные сохраняются в docker volumes: `ums-db-data`, `bird-db-data`.
+
+Локальный запуск (идея из `README.md`):
+1) `docker compose up -d` — поднять базы.
+2) `cd ums && ./gradlew build && java -jar build/libs/ums.jar`
+3) `cd twitter && ./gradlew build && java -jar build/libs/twitter.jar`
+4) фронтенд: `cd frontend && npm install && npm run dev`
+
+Примечание: для корректной работы фронта с `/api/twitter` в dev-режиме нужен reverse proxy
+или настройка proxy в Vite (в репозитории она описана как требование, но не включена по умолчанию).
+
+8.2. Docker-образы и multi-stage build
+
+Сборка (см. `DOCKER-BUILD.md`):
+- `docker build -t ums:2.0 ums`
+- `docker build -t twitter:2.0 twitter`
+- `docker build -t frontend:2.0 frontend`
+
+Backend Dockerfile (UMS/Twitter):
+- build stage: `gradle:8.7-jdk21`, `gradle clean bootJar`
+- runtime stage: `eclipse-temurin:21-jre`, запускает `java -jar /app/app.jar`
+
+Frontend Dockerfile:
+- build stage: `node:20-alpine`, `npm ci && npm run build`
+- runtime stage: `nginx:1.27-alpine`, отдача `dist/`
+- runtime-конфиг: `docker-entrypoint.sh` генерирует `/config.js` с `AUTH_BASE_URL`.
+
+8.3. Kubernetes: манифесты и доступ
+
+Папка `k8s/` содержит полный комплект манифестов:
+- `namespace.yaml` — namespace `apps`.
+- `secrets.yaml` — секреты MySQL и GitHub OAuth.
+- `mysql-ums.yaml`, `mysql-twitter.yaml` — StatefulSet + PVC для MySQL.
+- `ums.yaml`, `twitter.yaml` — Deployments + Services для backend.
+- `frontend.yaml` — Deployment + Service для фронта.
+- `ingress.yaml` — Ingress на host `app.local`:
+  - `/` -> frontend
+  - `/api/ums/*` -> ums (rewrite)
+  - `/api/twitter/*` -> twitter (rewrite)
+- `networkpolicies.yaml` — сетевые ограничения (default deny + разрешения).
+- `ingress-nginx-service-lb.yaml` — опциональный LoadBalancer для ingress-контроллера.
+
+Доступ в k8s-контуре:
+- домен `app.local` (нужно прописать в hosts на внешний IP ingress).
+- URL:
+  - `http://app.local/` — фронтенд
+  - `http://app.local/api/ums/...` — UMS
+  - `http://app.local/api/twitter/...` — Twitter
+
+8.4. Сетевые политики (NetworkPolicy)
+
+`k8s/networkpolicies.yaml` включает модель «по умолчанию всё запрещено»:
+- `default-deny-all` блокирует ingress/egress.
+- отдельные политики разрешают:
+  - DNS (kube-dns) для всех подов;
+  - доступ ingress-контроллера к фронтенду и API;
+  - доступ twitter -> ums и twitter -> mysql-twitter;
+  - доступ ums -> mysql-ums и ums -> GitHub:443;
+  - запрет доступа к БД от любых подов, кроме «своего» сервиса.
+
+Это сильный учебный акцент на безопасной сетевой сегментации сервисов.
+
+
+============================================================
+9. ТЕСТИРОВАНИЕ И ИНСТРУМЕНТЫ
+============================================================
+
+9.1. Postman
+
+В папке `requests/` лежат коллекции:
+- `UMS.postman_collection.json`
+- `Twitter.postman_collection.json`
+
+Они помогают быстро вызывать эндпоинты и проверять ответы в формате `code/message/data`.
+Для защищённых эндпоинтов нужно добавлять `Authorization: Bearer <token>`.
+
+9.2. Actuator
+
+Оба сервиса подключают Spring Actuator:
+- доступ к `/actuator/**` разрешён без авторизации.
+Это удобно для проверки живости сервиса, информации о приложении и базовых метрик.
+
+
+============================================================
+10. ИТОГИ И ВОЗМОЖНЫЕ УЛУЧШЕНИЯ
+============================================================
+
+10.1. Что проект демонстрирует (учебные результаты)
+- Архитектура: разбиение на сервисы по доменам, отдельные БД, интеграция по HTTP.
+- Безопасность: JWT, интроспекция, OAuth2, роль-based доступ, инвалидация токенов.
+- БД: схема, связи, индексы, миграции Flyway, хранение UUID в BINARY(16).
+- Фронтенд: SPA с маршрутами, хранение сессии, защита маршрутов, UX под роли.
+- DevOps: Docker multi-stage, Kubernetes manifests, Ingress, NetworkPolicy, Secrets.
+
+10.2. Идеи для развития (как следующий шаг обучения)
+- Привести API к «чистому» REST: использовать HTTP-статусы (201/400/401/403/404),
+  а не всегда `200 OK` с кодом в теле.
+- В Twitter-операциях жёстко связывать действие с пользователем из токена
+  (например, брать `author/subscriber` из `sub` JWT, а не из тела запроса),
+  чтобы исключить действия «от лица другого пользователя».
+- В WebFlux-сервисах вынести блокирующий JDBC на boundedElastic или перейти на R2DBC.
+- Добавить OpenAPI/Swagger для обоих сервисов и автогенерацию клиента.
+- Добавить базовые unit/integration тесты (контроллеры, репозитории, security).
+- Улучшить локальную разработку фронта: добавить proxy в `vite.config.ts`
+  для `/api/ums` и `/api/twitter` в dev-режиме.
+- Улучшить секрет-менеджмент: вынести пароли из репозитория (для k8s — sealed secrets/ExternalSecrets).
+
+------------------------------------------------------------
+Конец отчёта
+------------------------------------------------------------
+
