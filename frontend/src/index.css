@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Sora', 'Space Grotesk', sans-serif;
+  --page-bg: #f6f5f2;
+  --page-ink: #1c1f24;
+  --surface: #ffffff;
+  --surface-muted: #f1efeb;
+  --border: rgba(15, 23, 42, 0.12);
+  --accent: #d17a4b;
+  --accent-strong: #c3683a;
+  --accent-cool: #2f6f68;
+  --glow-1: rgba(209, 122, 75, 0.16);
+  --glow-2: rgba(47, 111, 104, 0.12);
+  --glow-3: rgba(15, 23, 42, 0.08);
+  --grid-line: rgba(15, 23, 42, 0.06);
+  --shadow-soft: 0 18px 40px rgba(15, 23, 42, 0.08);
+  --shadow-tight: 0 10px 20px rgba(15, 23, 42, 0.08);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--page-bg);
+  background-image:
+    radial-gradient(circle at top right, rgba(209, 122, 75, 0.08), transparent 45%),
+    radial-gradient(circle at 15% 20%, rgba(47, 111, 104, 0.06), transparent 50%);
+  color: var(--page-ink);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@keyframes rise-in {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  .surface-card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(8px);
+  }
+
+  .surface-muted {
+    background-color: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+  }
+}
+
+@layer utilities {
+  .animate-rise {
+    animation: rise-in 0.7s ease forwards;
+  }
+
+  .animate-fade {
+    animation: fade-in 0.6s ease forwards;
+  }
+
+  .grid-wash {
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+}
